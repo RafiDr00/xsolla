@@ -1,4 +1,9 @@
-# Fly.io deployment.
+# Fly.io deployment - kept as an alternative target; the live service runs on Railway.
+#
+# NOTE: Fly withdrew its free allowances for new accounts, so this path now costs roughly
+# $3/month (a few cents for a 96-hour window) and requires a card. It is here because it
+# is the better shape for this workload - a real mounted volume, and an explicit
+# never-scale-to-zero switch - not because it is free.
 #
 # The two settings that matter for a 96-hour scoring window:
 #   auto_stop_machines = 'off' + min_machines_running = 1

@@ -113,26 +113,33 @@ AUTH_TOKEN=t GROQ_API_KEY=stub LLM_BASE_URL=http://127.0.0.1:9500 node dist/serv
 
 ## Deploying
 
-### Fly.io (recommended)
+### Railway (what this service is deployed on)
 
 ```bash
-fly launch --no-deploy          # or: fly apps create <name>, then edit fly.toml
-fly volumes create review_data --size 1 --region cdg
-fly secrets set AUTH_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-fly secrets set ANTHROPIC_API_KEY=sk-ant-...
-fly deploy
-fly status
+npm i -g @railway/cli
+railway login
+railway init                       # creates the project
+railway up                         # builds the Dockerfile and deploys
+railway variables --set AUTH_TOKEN=<token> --set JOB_STORE_PATH=/data/jobs.json
+railway variables --set GROQ_API_KEY=gsk_...
+railway domain                     # public https URL
 ```
 
-`fly.toml` pins `min_machines_running = 1` and `auto_stop_machines = 'off'` so the
-machine never scales to zero — a host that sleeps on idle would cold-start mid-window and
-drop in-memory job state, breaking SSE replay and cache hits. The mounted volume keeps
-finished jobs across a redeploy.
+`railway.json` pins `sleepApplication: false`, one replica, `restartPolicyType: ALWAYS`
+and a `/health` healthcheck. **Never letting the instance sleep is the whole point of the
+host choice**: jobs, the result cache, the idempotency map and the SSE event log are all
+in-memory, so a cold start would 404 every previously-issued `jobId`, reset `cacheHit` to
+`false`, and break SSE replay — three separately-scored behaviors.
+
+Railway's container filesystem is ephemeral. Attach a volume at `/data` (Settings →
+Volumes) to keep `JOB_STORE_PATH` snapshots across restarts; without one, a restart loses
+finished jobs and the cache. The service runs correctly either way — persistence is
+best-effort by design.
 
 Then probe the deployed URL:
 
 ```bash
-node probe.mjs https://<app>.fly.dev <your-token>
+node probe.mjs https://<app>.up.railway.app <your-token>
 ```
 
 ### Any Docker host
