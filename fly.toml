@@ -1,0 +1,43 @@
+# Fly.io deployment.
+#
+# The two settings that matter for a 96-hour scoring window:
+#   auto_stop_machines = 'off' + min_machines_running = 1
+#     -> the machine never scales to zero, so there is no cold start and no loss of
+#        in-memory job state mid-window. This is the whole reason for choosing Fly over
+#        a free tier that sleeps after ~15 minutes of inactivity.
+#   [[mounts]]
+#     -> job snapshots persist across a redeploy or an OOM restart.
+#
+# Rename `app` to something unique before the first deploy.
+
+app = "ai-diff-review"
+primary_region = "cdg"
+
+[build]
+
+[env]
+  PORT = "8080"
+  JOB_STORE_PATH = "/data/jobs.json"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_start_machines = true
+  auto_stop_machines = 'off'
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"
+
+[[mounts]]
+  source = "review_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
