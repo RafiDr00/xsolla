@@ -34,9 +34,9 @@ node probe.mjs http://localhost:8080 my-secret-token
 | `AUTH_TOKEN` | **yes** | — | Bearer token for every `/v1/*` route. The service refuses to boot without it. |
 | `PORT` | no | `8080` | HTTP port. |
 | `JOB_STORE_PATH` | no | unset | Where job state is snapshotted. Unset = pure in-memory. |
-| `ANTHROPIC_API_KEY` | for `llm` | — | Model credential. Absent = `llm` jobs fail gracefully; `mock` is unaffected. |
-| `LLM_BASE_URL` | no | `https://api.anthropic.com` | Model endpoint. |
-| `LLM_MODEL` | no | `claude-sonnet-4-5` | Model id. |
+| `GROQ_API_KEY` | for `llm` | — | Model credential. Absent = `llm` jobs fail gracefully; `mock` is unaffected. |
+| `LLM_BASE_URL` | no | `https://api.groq.com/openai/v1` | Model endpoint, without the `/chat/completions` suffix. |
+| `LLM_MODEL` | no | `llama-3.3-70b-versatile` | Model id. |
 | `LLM_MAX_OUTPUT_TOKENS` | no | `4096` | Response cap. |
 | `LLM_TIMEOUT_MS` | no | `20000` | Per-request timeout before the job fails. |
 
@@ -74,14 +74,19 @@ it is declared here, as the brief's "your declared burst" allows.)
 
 ## How the `llm` provider is configured
 
-The `llm` provider calls the **Anthropic Messages API** (`POST {LLM_BASE_URL}/v1/messages`)
-with `x-api-key` and `anthropic-version: 2023-06-01`. Credentials live only on the
-server, in `ANTHROPIC_API_KEY` — clients send only the bearer token.
+The `llm` provider calls **Groq**'s OpenAI-compatible Chat Completions API
+(`POST {LLM_BASE_URL}/chat/completions`) with `Authorization: Bearer <key>`. Groq was
+chosen because its free tier needs no credit card, which keeps the whole deployment
+free. Credentials live only on the server, in `GROQ_API_KEY` — clients send only the
+bearer token.
 
 ```bash
-fly secrets set ANTHROPIC_API_KEY=sk-ant-...      # deployed
-echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env        # local
+railway variables --set GROQ_API_KEY=gsk_...      # deployed
+echo 'GROQ_API_KEY=gsk_...' >> .env               # local
 ```
+
+Because the wire format is the OpenAI dialect, any OpenAI-compatible endpoint works by
+changing `LLM_BASE_URL` and `LLM_MODEL` alone — no code change.
 
 It sits behind the same `ReviewProvider` interface as `mock`, so chunking, ordering,
 dedup, truncation, caching, SSE and the job lifecycle are shared code — not reimplemented.
@@ -97,11 +102,13 @@ Two guarantees:
   from our own parsed diff. A model that fully obeys an injected instruction still
   cannot invent a finding or forge evidence.
 
-To exercise the path without a real key, `tools/fake-llm.mjs` is an Anthropic-shaped stub:
+To exercise the path without a real key, `tools/fake-llm.mjs` is an OpenAI-shaped stub
+that deliberately returns one valid finding, one on a line that was never added, and one
+in a file not in the diff — only the valid one may survive:
 
 ```bash
 node tools/fake-llm.mjs &
-AUTH_TOKEN=t ANTHROPIC_API_KEY=stub LLM_BASE_URL=http://127.0.0.1:9500 node dist/server.js
+AUTH_TOKEN=t GROQ_API_KEY=stub LLM_BASE_URL=http://127.0.0.1:9500 node dist/server.js
 ```
 
 ## Deploying
@@ -155,7 +162,7 @@ capacity is measured from a known state. Set `PROBE_SKIP_REFILL=1` to skip that 
 
 ```
 src/core/      diff parser, chunker, rule engine, ordering/dedup, cache keys
-src/providers/ ReviewProvider interface, mock, llm (Anthropic)
+src/providers/ ReviewProvider interface, mock, llm (Groq / OpenAI-compatible)
 src/jobs/      pipeline, bounded queue, job store + event log + persistence
 src/http/      app/routes, auth, error taxonomy, rate limiter
 probe.mjs      end-to-end probe

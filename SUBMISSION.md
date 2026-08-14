@@ -31,9 +31,11 @@ provider does not sort, deduplicate, truncate, cache, or know that chunking exis
 of that is pipeline responsibility. That single seam is why the `llm` provider inherits
 every cross-cutting behavior from `mock` without reimplementing any of it.
 
-`mock` applies the rule table to added lines and is fully deterministic. `llm` calls the
-Anthropic Messages API with server-side credentials. Two properties matter more than its
-review quality:
+`mock` applies the rule table to added lines and is fully deterministic. `llm` calls
+Groq's OpenAI-compatible Chat Completions API with server-side credentials — chosen
+because its free tier needs no credit card, so the whole deployment stays free, and
+because the OpenAI dialect makes the endpoint swappable by environment variable alone.
+Two properties matter more than its review quality:
 
 - **It degrades, it never crashes.** Missing key, connection refused, HTTP error, timeout
   and unparseable output all become a `failed` job with a clear message. Node's `fetch`
@@ -89,7 +91,7 @@ reported as a finding while the other eight rules still fire on the same scan.
 **Graceful LLM degradation** was proven by simulating outages, not by assertion: a
 refused connection, an HTTP 401 from a stub endpoint, and an unset key each produced a
 `failed` job with a clear error while `/health` stayed 200 and `mock` jobs kept working
-on the same instance. The success path was proven against an Anthropic-shaped stub that
+on the same instance. The success path was proven against an OpenAI-shaped stub that
 deliberately returned one valid finding, one on a line that was never added, and one in a
 file not in the diff — only the valid one survived.
 

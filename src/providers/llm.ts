@@ -6,7 +6,7 @@ import type { LlmConfig } from '../config.js';
 import { ProviderError, type ReviewProvider } from './types.js';
 
 /**
- * The real-LLM provider (Anthropic Messages API).
+ * The real-LLM provider (Groq, via its OpenAI-compatible Chat Completions API).
  *
  * It sits behind the exact same `ReviewProvider` seam as `mock`, so chunking, ordering,
  * dedup, truncation, caching, SSE and the job lifecycle are all inherited unchanged.
@@ -105,7 +105,7 @@ export function createLlmProvider(config: LlmConfig): ReviewProvider {
     async review(chunk: Chunk): Promise<Finding[]> {
       if (!config.apiKey) {
         throw new ProviderError(
-          'LLM provider is not configured: ANTHROPIC_API_KEY is not set on the server',
+          'LLM provider is not configured: GROQ_API_KEY is not set on the server',
         );
       }
 
@@ -127,18 +127,17 @@ export function createLlmProvider(config: LlmConfig): ReviewProvider {
 
       let response: Response;
       try {
-        response = await fetch(`${config.baseUrl}/v1/messages`, {
+        response = await fetch(`${config.baseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
-            'x-api-key': config.apiKey,
-            'anthropic-version': '2023-06-01',
+            authorization: `Bearer ${config.apiKey}`,
           },
           body: JSON.stringify({
             model: config.model,
             max_tokens: config.maxOutputTokens,
-            system: SYSTEM_PROMPT,
             messages: [
+              { role: 'system', content: SYSTEM_PROMPT },
               {
                 role: 'user',
                 content: `Review these added lines.\n\n<diff_data>\n${rendered}\n</diff_data>`,
@@ -168,10 +167,10 @@ export function createLlmProvider(config: LlmConfig): ReviewProvider {
       }
 
       const payload = (await response.json().catch(() => null)) as {
-        content?: Array<{ type?: string; text?: string }>;
+        choices?: Array<{ message?: { content?: string } }>;
       } | null;
 
-      const text = payload?.content?.find((part) => part.type === 'text')?.text;
+      const text = payload?.choices?.[0]?.message?.content;
       if (typeof text !== 'string') {
         throw new ProviderError('LLM response contained no text content');
       }

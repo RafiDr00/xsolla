@@ -67,9 +67,11 @@ export function loadConfig(): Config {
       // Absent key is not fatal at boot: the service must still start and serve `mock`.
       // An `llm` job then fails gracefully with a clear error, which is the documented
       // behavior for an unreachable model.
-      apiKey: process.env['ANTHROPIC_API_KEY'] ?? null,
-      baseUrl: process.env['LLM_BASE_URL'] ?? 'https://api.anthropic.com',
-      model: process.env['LLM_MODEL'] ?? 'claude-sonnet-4-5',
+      apiKey: process.env['GROQ_API_KEY'] ?? null,
+      // Groq speaks the OpenAI Chat Completions dialect, so the base URL already carries
+      // the `/openai/v1` prefix and the provider appends `/chat/completions`.
+      baseUrl: process.env['LLM_BASE_URL'] ?? 'https://api.groq.com/openai/v1',
+      model: process.env['LLM_MODEL'] ?? 'llama-3.3-70b-versatile',
       maxOutputTokens: Number(process.env['LLM_MAX_OUTPUT_TOKENS'] ?? 4096),
       timeoutMs: Number(process.env['LLM_TIMEOUT_MS'] ?? 20_000),
     },
