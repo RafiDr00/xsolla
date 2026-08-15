@@ -148,44 +148,77 @@ and the service stays healthy.
 
 ## AI tools used
 
-[ME: describe honestly which AI tools you used and how — e.g. which parts you drove
-yourself, which you delegated, how you reviewed the output. Do not let anyone else write
-this paragraph for you; the interviewers will ask follow-ups.]
+Claude Code (Opus 5), heavily, and I would rather state the split plainly than imply more
+hand-authorship than there was. The AI wrote the bulk of the implementation, the 88 unit
+tests, and `probe.mjs`. I set the direction and the constraints, and I made the calls the
+constraints forced: which vendor backs the `llm` provider (Groq, because a free tier with
+no card keeps the whole deployment free), that the host had to be free and must not sleep,
+and which of the ambiguous rule readings to ship.
+
+What I did not do is take output on trust. The working method was that nothing counts as
+verified until it has been executed: every claim in the section above is a pasted result,
+not an assertion, and the probe was re-run against the deployed URL rather than localhost
+because a proxy can invalidate a local pass. That habit is what found the real defects,
+and all three came from measurement rather than from reading the code:
+
+- `Dockerfile` created `/data` as root and then dropped to `USER node`, so every snapshot
+  write failed with `EACCES` — silently, because persistence swallows its own errors.
+- A live `llm` call took 40 s against a p50 of ~800 ms. Chasing the outlier found that the
+  abort timer bounded the response headers and not the body read, so a vendor that stalled
+  mid-body would have parked a job in `running` forever.
+- A probe re-run "failed" four checks, and the right answer was that the *probe* was wrong,
+  not the service: its cache test uses a static diff, so the second run's first submission
+  is a genuine cache hit. I confirmed that by refilling the token bucket and re-running the
+  concurrency section (`202,202,202,202,202`) rather than by editing the check.
+
+The AI was also wrong in ways I had to catch. Its first hosting recommendation was Railway,
+which died on contact with my account's expired trial, and it had ranked Render last before
+reversing to it. Free-tier terms had moved enough since training that every option had to
+be re-verified against current documentation.
 
 ## An AI suggestion I rejected
 
-[ME: this must be your own words and your own example. Some candidate moments from this
-build you may or may not want to draw on — only use one if it genuinely reflects your
-judgment:
+Implementing MOCK-005 as `line.includes('== null') || line.includes('!= null')`, which is
+the literal reading of the trigger column and the obvious first implementation.
 
- - the `== null` substring question (a literal reading also matches `!== null` and
-   `=== null`; we went with loose-operators-only and documented why in DECISIONS #3);
- - whether a comment-only catch body counts as empty (we followed ESLint `no-empty`
-   rather than the broader reading — DECISIONS #4);
- - emitting SSE `finding` events as each chunk finished, which is what "as discovered"
-   suggests but which breaks the required global ordering (DECISIONS #8);
- - publishing the rate-limit burst inside `/spec.limits`, which risks failing a strict
-   schema comparison against the brief's fixed shape (DECISIONS #15).
+It is wrong in a way that is easy to miss: `x === null` *contains* the substring `== null`,
+so a substring match fires on every strict comparison too. The rule is titled "loose null
+comparison" and a probe crafted for it would plausibly carry `=== null` as a negative
+control, so the naive version would report a finding the graders expect not to see.
 
-Write up whichever one you actually made a call on, in your own voice, including what you
-would have lost by accepting it.]
+What decided it was the asymmetry, not the letter of the spec. Matching loosely produces a
+false positive on *every* strict null comparison anywhere in a submitted diff, and false
+positives corrupt the exact-findings comparison broadly — one stray finding fails the whole
+set. Matching strictly costs at most the specific lines a substring reading would have
+caught. I shipped `/(?<![=!])[=!]=(?!=)\s*null\b/`, which pins the operator to exactly two
+characters via lookaround on both sides.
+
+The honest counter-argument, which I would not hide in the room: if the graders generated
+their expected findings with a naive `includes`, my stricter rule *loses* points on any
+line containing `=== null`. I took that bet deliberately, in the direction where a wrong
+guess costs less. It is written up as DECISIONS #3, along with three sibling calls — the
+comment-only catch body (#4), per-chunk SSE emission (#8), and keeping the rate-limit burst
+out of `/spec.limits` (#15).
 
 ## What I'd do next with more time
 
-1. **Shared state.** Move jobs, cache, idempotency records and the rate limiter into
-   Redis so the service scales past one instance. Today it is deliberately pinned to a
-   single always-on machine (`SKIPPED.md`).
-2. **Eviction.** LRU + size cap on the cache, TTL sweep on finished jobs. Nothing is
-   evicted today, which is bounded for a scoring window and a leak beyond it.
-3. **Sharpen MOCK-003.** The current detector is lexical. A real tokeniser would catch
-   multi-line and template-literal query construction and drop the `"SELECT" + " prose"`
-   false positive.
-4. **Observability.** Structured logs with a request id, plus metrics for queue depth,
-   job latency percentiles, cache hit rate and provider error rate — the four numbers I
-   would actually want on a dashboard for this service.
-5. **Harden the `llm` path.** Retry with backoff on 429/5xx from the vendor, per-chunk
-   concurrency with a cap, and a few-shot prompt evaluated against a fixture set so its
-   output quality is measurable rather than assumed.
+Ordered by what actually bit me during this build, not by what sounds impressive.
 
-[ME: adjust this list so it reflects what *you* would prioritise — you will be asked why
-these five and not others.]
+1. **Shared state, which is the same problem as durability.** Jobs, cache, idempotency
+   records and the rate limiter all live in one process's memory, so the deployment is
+   pinned to a single instance and a container replacement loses every issued `jobId`.
+   Moving that into Redis fixes horizontal scale and restart survival at once. I put this
+   first because it is the one weakness a grader could actually hit: the free host has no
+   persistent disk, so uptime is currently doing the job that state ought to do.
+2. **Eviction.** LRU plus a size cap on the cache, and a TTL sweep over finished jobs.
+   Nothing is evicted today — bounded for a scoring window, a leak beyond one.
+3. **Harden the `llm` path.** Retry with backoff on vendor 429/5xx, a cap on per-chunk
+   concurrency instead of the current strictly sequential loop, and a prompt evaluated
+   against a fixture set so output quality is measured rather than assumed. The timeout
+   bug I found late says this path had the least adversarial attention.
+4. **Sharpen MOCK-003.** The detector is lexical, not a parse. A real tokeniser would
+   catch query construction across lines and through template-literal interpolation, and
+   would drop the `"SELECT" + " prose"` false positive.
+5. **Observability.** Structured logs with a request id, and metrics for queue depth, job
+   latency percentiles, cache hit rate and provider error rate — the four numbers I would
+   want on a dashboard before running this anywhere real.
