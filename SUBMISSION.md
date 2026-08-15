@@ -171,10 +171,10 @@ and all three came from measurement rather than from reading the code:
   is a genuine cache hit. I confirmed that by refilling the token bucket and re-running the
   concurrency section (`202,202,202,202,202`) rather than by editing the check.
 
-The AI was also wrong in ways I had to catch. Its first hosting recommendation was Railway,
-which died on contact with my account's expired trial, and it had ranked Render last before
-reversing to it. Free-tier terms had moved enough since training that every option had to
-be re-verified against current documentation.
+The AI was also wrong in ways I had to catch. Its first hosting recommendation died on
+contact with my account's actual state, and it had ranked the host we ended up using last
+before reversing. Free-tier terms had moved enough since its training data that every
+option had to be re-verified against current documentation rather than recalled.
 
 ## An AI suggestion I rejected
 

@@ -143,17 +143,15 @@ Then probe the deployed URL:
 node probe.mjs https://<service>.onrender.com <your-token>
 ```
 
-### Any Docker host
+### Reproducing the deployed container locally
+
+The image Render runs is the one in this repo, with no host-specific build steps:
 
 ```bash
 docker build -t diff-review .
-docker run -p 8080:8080 -e AUTH_TOKEN=... -v $(pwd)/data:/data diff-review
+docker run -p 8080:8080 -e AUTH_TOKEN=... -v "$(pwd)/data:/data" diff-review
+node probe.mjs http://127.0.0.1:8080 <token>
 ```
-
-### Tunnel (fallback)
-
-`cloudflared tunnel --url http://localhost:8080` works, but uptime then depends on the
-laptop staying awake and online for the full window. Use only as a backup.
 
 ## Tests
 

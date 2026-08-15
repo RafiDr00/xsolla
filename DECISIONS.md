@@ -196,9 +196,12 @@ promise: a fully compromised model still cannot fabricate a location or forge ev
 (loses everything on restart).
 
 **Why this:** in-memory is the primary store — simple and fast. A debounced,
-atomically-renamed JSON snapshot means a redeploy or OOM kill inside the scoring window
-does not lose finished jobs or cached results. **Tradeoff accepted:** it is single-node
-state, so it does not survive running two instances behind a load balancer. Jobs that
+atomically-renamed JSON snapshot means a process restart does not lose finished jobs or
+cached results. **Two tradeoffs accepted:** it is single-node state, so it does not
+survive running two instances behind a load balancer; and on the free tier this service
+is deployed to there is no persistent disk, so the snapshot survives a process restart
+but not a container replacement. Stated rather than papered over — see `SUBMISSION.md`.
+Jobs that
 were mid-flight at restart are marked `failed` with "interrupted by a service restart"
 rather than left `running` forever, because their worker is genuinely gone.
 Verified: 47 jobs restored across a real process restart, SSE replay intact.

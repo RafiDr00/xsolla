@@ -9,7 +9,8 @@ The brief invites prioritisation. Everything scored is implemented; this is what
 limiter are all per-process. Two instances behind a load balancer would give inconsistent
 cache hits and a per-instance rate limit. Fixing it means Redis, which is real
 operational weight for a service that is scored as a single endpoint. Mitigated by
-pinning the deployment to exactly one always-on machine (`min_machines_running = 1`).
+pinning the deployment to exactly one instance (`numReplicas: 1` in `render.yaml`) and
+keeping that instance awake rather than letting it cycle.
 
 **Cache and job eviction.** Nothing is ever evicted — no TTL, no LRU, no size cap. For a
 scoring window with probe-scale traffic this is bounded and fine; for production it is a

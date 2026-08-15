@@ -14,8 +14,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 
-# Job snapshots live here. On Fly this is a mounted volume, so finished jobs and cached
-# results survive a machine restart inside the scoring window.
+# Job snapshots live here. On a host with a mounted volume this survives a restart; on
+# Render's free plan there is no disk, so it survives only as long as the container does.
 # Owned by `node`, because the process below is unprivileged - without the chown every
 # snapshot write fails with EACCES (silently, since persistence is best-effort).
 RUN mkdir -p /data && chown node:node /data
