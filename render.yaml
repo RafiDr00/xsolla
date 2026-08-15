@@ -23,6 +23,8 @@ services:
       - key: AUTH_TOKEN
         sync: false
       # Set in the dashboard: Groq credential for the `llm` provider.
+      # `sync: false` means "prompt me for the value, never store it in the repo" - the
+      # value must not be written here, this file is public.
       - key: GROQ_API_KEY
         sync: false
       # Set in the dashboard once the public URL is known:

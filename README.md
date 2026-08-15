@@ -80,9 +80,12 @@ chosen because its free tier needs no credit card, which keeps the whole deploym
 free. Credentials live only on the server, in `GROQ_API_KEY` — clients send only the
 bearer token.
 
+The key is set as an environment variable on the host (Render dashboard → the service →
+**Environment**) and locally in `.env`, which is gitignored. It is never written into
+`render.yaml`, which is committed and public — that is what `sync: false` is for.
+
 ```bash
-railway variables --set GROQ_API_KEY=gsk_...      # deployed
-echo 'GROQ_API_KEY=gsk_...' >> .env               # local
+echo 'GROQ_API_KEY=gsk_...' >> .env               # local only
 ```
 
 Because the wire format is the OpenAI dialect, any OpenAI-compatible endpoint works by
