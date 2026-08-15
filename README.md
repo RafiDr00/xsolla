@@ -166,6 +166,22 @@ node probe.mjs <baseUrl> <token>   # 69 end-to-end checks against a running inst
 The probe's rate-limit section waits 62 s for the token bucket to refill so burst
 capacity is measured from a known state. Set `PROBE_SKIP_REFILL=1` to skip that wait.
 
+**The probe assumes a cold instance.** Running it twice in a row against the same warm
+process produces two families of false failures, both of which are the service behaving
+correctly:
+
+- *"First submission reported cacheHit false"* — the cache test submits a **static** diff,
+  so on the second run the first submission is a genuine cache hit. Nothing is evicted by
+  design (`SKIPPED.md`).
+- *"All 5 concurrent submissions accepted"* — the previous run's 45-request burst drained
+  the token bucket, so the concurrency section's POSTs are correctly rejected with `429`.
+  After a 75 s refill the same five submissions return `202,202,202,202,202` and all reach
+  `done`.
+
+Restart the service, or leave ~90 s between runs. A deploy switchover is a third source:
+a POST accepted by the outgoing container and polled on the incoming one will never reach
+`done`, because job state is per-instance and in-memory.
+
 ## Project layout
 
 ```
