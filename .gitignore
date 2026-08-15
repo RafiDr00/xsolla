@@ -8,3 +8,6 @@ data/
 
 # Local tool state, never part of the submission.
 .claude/
+
+# The task brief belongs to them, not in a public repo.
+CANDIDATE-TASK.md

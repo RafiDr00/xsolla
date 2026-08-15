@@ -6,6 +6,9 @@ through a pluggable provider and returns structured findings over REST or SSE.
 **Stack:** Node 22+ / TypeScript / Express 5. One production dependency (`express`);
 everything else — hashing, HTTP client, test runner — is Node's standard library.
 
+**Live:** `https://ai-diff-review-3klp.onrender.com` — `/health` and `/spec` are public,
+so both are reachable without a token.
+
 ---
 
 ## Quick start
@@ -38,7 +41,7 @@ node probe.mjs http://localhost:8080 my-secret-token
 | `LLM_BASE_URL` | no | `https://api.groq.com/openai/v1` | Model endpoint, without the `/chat/completions` suffix. |
 | `LLM_MODEL` | no | `llama-3.3-70b-versatile` | Model id. |
 | `LLM_MAX_OUTPUT_TOKENS` | no | `4096` | Response cap. |
-| `LLM_TIMEOUT_MS` | no | `20000` | Per-request timeout before the job fails. |
+| `LLM_TIMEOUT_MS` | no | `20000` | Per-request timeout. Covers the response **body** read, not just the headers — a vendor that stalls mid-body fails the job instead of hanging it. |
 
 Never commit `.env` — it is gitignored. `.env.example` documents the full set.
 
