@@ -122,103 +122,119 @@ export function createLlmProvider(config: LlmConfig): ReviewProvider {
 
       // Explicit AbortController rather than AbortSignal.timeout(): available on every
       // supported Node version, and it lets us clear the timer on the success path.
+      //
+      // The timer stays armed until the response BODY has been read, not just until the
+      // headers arrive. Clearing it after `fetch` resolves would leave the body read
+      // unbounded, and a vendor that sends headers and then stalls would park the job in
+      // `running` forever - the one outcome the contract rules out. Hence the outer
+      // try/finally below.
       const controller = new AbortController();
       const timeout = setNodeTimeout(() => controller.abort(), config.timeoutMs);
-
-      let response: Response;
       try {
-        response = await fetch(`${config.baseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${config.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: config.model,
-            max_tokens: config.maxOutputTokens,
-            messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
-              {
-                role: 'user',
-                content: `Review these added lines.\n\n<diff_data>\n${rendered}\n</diff_data>`,
-              },
-            ],
-          }),
-          signal: controller.signal,
-        });
-      } catch (error) {
-        // Covers DNS failure, connection refused, TLS errors and the abort timeout.
-        const aborted = controller.signal.aborted;
-        throw new ProviderError(
-          aborted
-            ? `LLM request to ${config.baseUrl} timed out after ${config.timeoutMs}ms`
-            : `LLM request to ${config.baseUrl} failed: ${describeError(error)}`,
-          { cause: error },
-        );
+        let response: Response;
+        try {
+          response = await fetch(`${config.baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${config.apiKey}`,
+            },
+            body: JSON.stringify({
+              model: config.model,
+              max_tokens: config.maxOutputTokens,
+              messages: [
+                { role: 'system', content: SYSTEM_PROMPT },
+                {
+                  role: 'user',
+                  content: `Review these added lines.\n\n<diff_data>\n${rendered}\n</diff_data>`,
+                },
+              ],
+            }),
+            signal: controller.signal,
+          });
+        } catch (error) {
+          // Covers DNS failure, connection refused, TLS errors and the abort timeout.
+          const aborted = controller.signal.aborted;
+          throw new ProviderError(
+            aborted
+              ? `LLM request to ${config.baseUrl} timed out after ${config.timeoutMs}ms`
+              : `LLM request to ${config.baseUrl} failed: ${describeError(error)}`,
+            { cause: error },
+          );
+        }
+
+        if (!response.ok) {
+          const body = await response.text().catch(() => '');
+          throw new ProviderError(
+            `LLM returned HTTP ${response.status}: ${body.slice(0, 200) || response.statusText}`,
+          );
+        }
+
+        let payload: { choices?: Array<{ message?: { content?: string } }> } | null;
+        try {
+          payload = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        } catch (error) {
+          // A body that stalls mid-read aborts here rather than hanging the job.
+          throw new ProviderError(
+            controller.signal.aborted
+              ? `LLM response from ${config.baseUrl} timed out after ${config.timeoutMs}ms while reading the body`
+              : `LLM returned an unreadable response body: ${describeError(error)}`,
+            { cause: error },
+          );
+        }
+
+        const text = payload?.choices?.[0]?.message?.content;
+        if (typeof text !== 'string') {
+          throw new ProviderError('LLM response contained no text content');
+        }
+
+        const parsed = extractJsonArray(text);
+        if (!Array.isArray(parsed)) throw new ProviderError('LLM did not return a JSON array');
+
+        const findings: Finding[] = [];
+        for (const item of parsed) {
+          if (typeof item !== 'object' || item === null) continue;
+          const record = item as Record<string, unknown>;
+
+          const path = record['path'];
+          const line = record['line'];
+          if (typeof path !== 'string' || typeof line !== 'number') continue;
+
+          // Hard gate: the finding must land on a line we actually parsed as added.
+          // Hallucinated or injection-driven locations are dropped here.
+          const added = addedByKey.get(`${path}:${line}`);
+          if (!added) continue;
+
+          const severity = (
+            SEVERITIES.includes(record['severity'] as string) ? record['severity'] : 'medium'
+          ) as Severity;
+          const category = (
+            CATEGORIES.includes(record['category'] as string) ? record['category'] : 'correctness'
+          ) as Category;
+
+          const rawTitle = typeof record['title'] === 'string' ? record['title'].trim() : '';
+          const title = (rawTitle || 'LLM finding').slice(0, 80);
+
+          // Stable, provider-scoped rule ids keep the id format identical to mock's.
+          const ruleId = `LLM-${category.toUpperCase()}`;
+
+          findings.push({
+            id: findingId(ruleId, added.path, added.line),
+            ruleId,
+            path: added.path,
+            line: added.line,
+            severity,
+            category,
+            title,
+            // Evidence always comes from the parsed diff, never from the model.
+            evidence: added.content,
+          });
+        }
+
+        return findings;
       } finally {
         clearTimeout(timeout);
       }
-
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        throw new ProviderError(
-          `LLM returned HTTP ${response.status}: ${body.slice(0, 200) || response.statusText}`,
-        );
-      }
-
-      const payload = (await response.json().catch(() => null)) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      } | null;
-
-      const text = payload?.choices?.[0]?.message?.content;
-      if (typeof text !== 'string') {
-        throw new ProviderError('LLM response contained no text content');
-      }
-
-      const parsed = extractJsonArray(text);
-      if (!Array.isArray(parsed)) throw new ProviderError('LLM did not return a JSON array');
-
-      const findings: Finding[] = [];
-      for (const item of parsed) {
-        if (typeof item !== 'object' || item === null) continue;
-        const record = item as Record<string, unknown>;
-
-        const path = record['path'];
-        const line = record['line'];
-        if (typeof path !== 'string' || typeof line !== 'number') continue;
-
-        // Hard gate: the finding must land on a line we actually parsed as added.
-        // Hallucinated or injection-driven locations are dropped here.
-        const added = addedByKey.get(`${path}:${line}`);
-        if (!added) continue;
-
-        const severity = (
-          SEVERITIES.includes(record['severity'] as string) ? record['severity'] : 'medium'
-        ) as Severity;
-        const category = (
-          CATEGORIES.includes(record['category'] as string) ? record['category'] : 'correctness'
-        ) as Category;
-
-        const rawTitle = typeof record['title'] === 'string' ? record['title'].trim() : '';
-        const title = (rawTitle || 'LLM finding').slice(0, 80);
-
-        // Stable, provider-scoped rule ids keep the id format identical to mock's.
-        const ruleId = `LLM-${category.toUpperCase()}`;
-
-        findings.push({
-          id: findingId(ruleId, added.path, added.line),
-          ruleId,
-          path: added.path,
-          line: added.line,
-          severity,
-          category,
-          title,
-          // Evidence always comes from the parsed diff, never from the model.
-          evidence: added.content,
-        });
-      }
-
-      return findings;
     },
   };
 }

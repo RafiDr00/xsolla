@@ -137,6 +137,15 @@ reached `done` with its 3 findings, and the SSE stream of the failed job termina
 cleanly — `status(queued) → status(running) → status(failed, with the reason) →
 done{total:0, usage}` — rather than hanging an attached client.
 
+Measuring the live path is also what surfaced the last bug I fixed. One `llm` call took
+40 s against a p50 of ~800 ms, which sent me back to the abort logic: the timer was cleared
+in a `finally` around `fetch`, so it bounded the *headers* and not the body read. A vendor
+that sent headers and then stalled would have parked the job in `running` forever — the one
+outcome the contract rules out. The timer now stays armed until the body is fully read.
+Proven with a stub that writes headers plus a partial body and never finishes: the job
+fails in 3,155 ms with `LLM response ... timed out after 3000ms while reading the body`,
+and the service stays healthy.
+
 ## AI tools used
 
 [ME: describe honestly which AI tools you used and how — e.g. which parts you drove
