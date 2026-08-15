@@ -1,11 +1,11 @@
-# Fly.io deployment - kept as an alternative target; the live service runs on Railway.
+# Fly.io deployment - kept as an alternative target; the live service runs on Render.
 #
 # NOTE: Fly withdrew its free allowances for new accounts, so this path now costs roughly
-# $3/month (a few cents for a 96-hour window) and requires a card. It is here because it
+# $3/month (a few cents for a scoring window) and requires a card. It is here because it
 # is the better shape for this workload - a real mounted volume, and an explicit
 # never-scale-to-zero switch - not because it is free.
 #
-# The two settings that matter for a 96-hour scoring window:
+# The two settings that matter for a scoring window:
 #   auto_stop_machines = 'off' + min_machines_running = 1
 #     -> the machine never scales to zero, so there is no cold start and no loss of
 #        in-memory job state mid-window. This is the whole reason for choosing Fly over

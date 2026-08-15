@@ -196,7 +196,7 @@ promise: a fully compromised model still cannot fabricate a location or forge ev
 (loses everything on restart).
 
 **Why this:** in-memory is the primary store — simple and fast. A debounced,
-atomically-renamed JSON snapshot means a redeploy or OOM kill inside the 96-hour window
+atomically-renamed JSON snapshot means a redeploy or OOM kill inside the scoring window
 does not lose finished jobs or cached results. **Tradeoff accepted:** it is single-node
 state, so it does not survive running two instances behind a load balancer. Jobs that
 were mid-flight at restart are marked `failed` with "interrupted by a service restart"

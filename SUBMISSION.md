@@ -1,8 +1,8 @@
 # Submission
 
-**Base URL:** `[ME: https://<your-app>.fly.dev]`
-**Bearer token:** `[ME: the token you set as AUTH_TOKEN — send this to the graders]`
-**Repository:** `[ME: your repo URL]`
+**Base URL:** `[ME: https://<service>.onrender.com — paste once the Render deploy is live]`
+**Bearer token:** `ee66f062b73b6d964ff37b853150ec3ecd2fccb50adc894900ca8768d55f978e`
+**Repository:** `https://github.com/RafiDr00/xsolla`
 
 ---
 
@@ -21,8 +21,17 @@ A bounded queue (4 workers) runs jobs; the pipeline scans each chunk through a
 globally**, deduplicates by `id`, and truncates to `maxFindings`. Every observable
 transition is appended to a per-job event log; SSE clients replay that log and then tail
 it, which is why replay on a finished job is identical to the live stream by construction
-rather than by a second code path. State is in-memory with a debounced, atomically-renamed
-disk snapshot so a restart inside the scoring window does not lose finished jobs.
+rather than by a second code path.
+
+State is in-memory, with a debounced, atomically-renamed disk snapshot behind
+`JOB_STORE_PATH`. Stated honestly: the host is Render's free tier, which has **no
+persistent disk**, so that snapshot survives a process restart but not a container
+replacement — on this deployment the store is effectively in-memory. Every free host that
+never sleeps now requires a card; Render is the one that does not, and its cost is a
+15-minute idle spin-down. A cold start would 404 every issued `jobId`, reset `cacheHit`
+and empty the SSE event log, so the service pings its own public URL every 4 minutes
+(`KEEPALIVE_URL`, `src/server.ts`) — internal rather than an external cron, because an
+outside pinger is one more thing that can quietly stop.
 
 ## Provider design
 
@@ -95,6 +104,12 @@ on the same instance. The success path was proven against an OpenAI-shaped stub 
 deliberately returned one valid finding, one on a line that was never added, and one in a
 file not in the diff — only the valid one survived.
 
+It was then proven against the **real vendor**: a diff containing a concatenated SQL
+query, an `eval` and a `console.log` submitted with `options.provider="llm"` reached
+`done` in **603 ms** with three findings on the correct lines
+(`LLM-SECURITY:src/db.js:12/13/15`), each carrying evidence taken from our parsed diff
+rather than from the model's output.
+
 ## AI tools used
 
 [ME: describe honestly which AI tools you used and how — e.g. which parts you drove
@@ -125,7 +140,7 @@ would have lost by accepting it.]
    Redis so the service scales past one instance. Today it is deliberately pinned to a
    single always-on machine (`SKIPPED.md`).
 2. **Eviction.** LRU + size cap on the cache, TTL sweep on finished jobs. Nothing is
-   evicted today, which is bounded for a 96-hour window and a leak beyond it.
+   evicted today, which is bounded for a scoring window and a leak beyond it.
 3. **Sharpen MOCK-003.** The current detector is lexical. A real tokeniser would catch
    multi-line and template-literal query construction and drop the `"SELECT" + " prose"`
    false positive.

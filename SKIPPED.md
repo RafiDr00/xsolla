@@ -12,7 +12,7 @@ operational weight for a service that is scored as a single endpoint. Mitigated 
 pinning the deployment to exactly one always-on machine (`min_machines_running = 1`).
 
 **Cache and job eviction.** Nothing is ever evicted — no TTL, no LRU, no size cap. For a
-96-hour window with probe-scale traffic this is bounded and fine; for production it is a
+scoring window with probe-scale traffic this is bounded and fine; for production it is a
 slow memory leak. The fix is an LRU with a size cap on the cache and a TTL sweep on
 finished jobs.
 
