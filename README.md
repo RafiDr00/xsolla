@@ -113,33 +113,31 @@ AUTH_TOKEN=t GROQ_API_KEY=stub LLM_BASE_URL=http://127.0.0.1:9500 node dist/serv
 
 ## Deploying
 
-### Railway (what this service is deployed on)
+### Render (what this service is deployed on)
 
-```bash
-npm i -g @railway/cli
-railway login
-railway init                       # creates the project
-railway up                         # builds the Dockerfile and deploys
-railway variables --set AUTH_TOKEN=<token> --set JOB_STORE_PATH=/data/jobs.json
-railway variables --set GROQ_API_KEY=gsk_...
-railway domain                     # public https URL
-```
+`render.yaml` is a Blueprint: Docker runtime, free plan, `/health` healthcheck. Connect
+the repo at [dashboard.render.com](https://dashboard.render.com) → **New → Blueprint**,
+then set three secrets in the dashboard: `AUTH_TOKEN`, `GROQ_API_KEY`, and `KEEPALIVE_URL`
+(`https://<service>.onrender.com/health`, filled in once the URL exists).
 
-`railway.json` pins `sleepApplication: false`, one replica, `restartPolicyType: ALWAYS`
-and a `/health` healthcheck. **Never letting the instance sleep is the whole point of the
-host choice**: jobs, the result cache, the idempotency map and the SSE event log are all
-in-memory, so a cold start would 404 every previously-issued `jobId`, reset `cacheHit` to
-`false`, and break SSE replay — three separately-scored behaviors.
+**Why the keep-alive.** Render spins a free web service down after 15 minutes without
+inbound traffic, with a ~60 s cold start. This service cannot afford that: jobs, the
+result cache, the idempotency map and the SSE event log are in-memory, so waking up means
+every previously-issued `jobId` 404s, `cacheHit` reverts to `false`, and SSE replay has
+nothing to replay — three separately-scored behaviors. `KEEPALIVE_URL` makes the process
+ping its own public URL every 4 minutes (`src/server.ts`), a ~3.7× margin under the idle
+window. It is deliberately internal rather than an external cron: an outside pinger is one
+more thing that can quietly stop.
 
-Railway's container filesystem is ephemeral. Attach a volume at `/data` (Settings →
-Volumes) to keep `JOB_STORE_PATH` snapshots across restarts; without one, a restart loses
-finished jobs and the cache. The service runs correctly either way — persistence is
-best-effort by design.
+**What is lost.** The free plan has no persistent disk, so the `JOB_STORE_PATH` snapshot
+lives inside the container and does not survive a redeploy or a platform restart. On this
+host the store is effectively in-memory; uptime, not persistence, is what protects the
+cross-cutting behaviors.
 
 Then probe the deployed URL:
 
 ```bash
-node probe.mjs https://<app>.up.railway.app <your-token>
+node probe.mjs https://<service>.onrender.com <your-token>
 ```
 
 ### Any Docker host

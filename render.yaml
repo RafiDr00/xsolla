@@ -1,0 +1,35 @@
+# Render Blueprint.
+#
+# Free is the binding constraint here, and Render's free web service is the only host
+# left in 2026 that is $0 with no payment method on file. The cost of that choice is a
+# 15-minute idle spin-down, which this service cannot afford - see KEEPALIVE_URL below
+# and the comment in src/server.ts.
+#
+# The free plan has no persistent disk. The Dockerfile's JOB_STORE_PATH=/data/jobs.json
+# still writes, but /data is inside the container, so the snapshot survives only as long
+# as the container does - a redeploy or a platform restart loses finished jobs, the result
+# cache and the idempotency map. Stated plainly rather than papered over: on this host the
+# store is effectively in-memory, and uptime is what protects the scored behaviors.
+services:
+  - type: web
+    name: ai-diff-review
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      # Set in the dashboard, not here: the bearer token handed to the graders.
+      - key: AUTH_TOKEN
+        sync: false
+      # Set in the dashboard: Groq credential for the `llm` provider.
+      - key: GROQ_API_KEY
+        sync: false
+      # Set in the dashboard once the public URL is known:
+      #   https://<service>.onrender.com/health
+      - key: KEEPALIVE_URL
+        sync: false
+      - key: LLM_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: LLM_MODEL
+        value: llama-3.3-70b-versatile
